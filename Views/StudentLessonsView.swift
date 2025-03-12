@@ -5,6 +5,7 @@ struct StudentLessonsView: View {
     @State private var upcomingLessons: [Booking] = []
     @State private var errorMessage: String?
     @State private var isLoading: Bool = false
+    @State private var canceledLessons: [Booking] = []
 
     var body: some View {
         VStack(spacing: 20) {
@@ -24,26 +25,55 @@ struct StudentLessonsView: View {
                     .foregroundColor(.gray)
                     .padding()
             } else {
-                List(upcomingLessons) { lesson in
+                if !upcomingLessons.isEmpty {
                     VStack(alignment: .leading) {
-                        Text("Tutor: \(lesson.tutorName)")
+                        Text("Upcoming Lessons")
                             .font(.headline)
-                        Text("Date: \(lesson.date)")
-                        Text("Time: \(lesson.timeSlot)")
-                        
-                        Button(action: {
-                            cancelLesson(lessonID: lesson.id, tutorID: lesson.tutorID)
-                        }) {
-                            Text("❌ Cancel Lesson")
-                                .frame(maxWidth: .infinity)
-                                .padding()
-                                .background(Color.red)
-                                .foregroundColor(.white)
-                                .cornerRadius(8)
+                            .padding(.top)
+
+                        List(upcomingLessons) { lesson in
+                            VStack(alignment: .leading) {
+                                Text("Tutor: \(lesson.tutorName)")
+                                    .font(.headline)
+                                Text("Date: \(lesson.date)")
+                                Text("Time: \(lesson.timeSlot)")
+
+                                Button(action: { cancelLesson(lessonID: lesson.id, tutorID: lesson.tutorID) }) {
+                                    Text("❌ Cancel Lesson")
+                                        .frame(maxWidth: .infinity)
+                                        .padding()
+                                        .background(Color.red)
+                                        .foregroundColor(.white)
+                                        .cornerRadius(8)
+                                }
+                                .buttonStyle(.borderless)
+                            }
                         }
-                        .buttonStyle(.borderless)
                     }
                 }
+
+                // ✅ Display Canceled Lessons Separately
+                if !canceledLessons.isEmpty {
+                    VStack(alignment: .leading) {
+                        Text("Canceled Lessons")
+                            .font(.headline)
+                            .foregroundColor(.gray)
+                            .padding(.top)
+
+                        List(canceledLessons) { lesson in
+                            VStack(alignment: .leading) {
+                                Text("Tutor: \(lesson.tutorName)")
+                                    .font(.headline)
+                                Text("Date: \(lesson.date)")
+                                Text("Time: \(lesson.timeSlot)")
+                                Text("❌ Canceled")
+                                    .font(.subheadline)
+                                    .foregroundColor(.red)
+                            }
+                        }
+                    }
+                }
+
             }
 
 
@@ -52,42 +82,43 @@ struct StudentLessonsView: View {
         .padding()
         .onAppear {
             print("🟢 StudentLessonsView appeared, fetching upcoming lessons...")
-            fetchUpcomingLessons()
+            fetchLessons()
         }
     }
 
     /// Fetch upcoming confirmed lessons for the student
-    func fetchUpcomingLessons() {
+    func fetchLessons() {
         guard let studentID = authManager.user?.id else { return }
-        
-        isLoading = true
-        FirestoreManager.shared.fetchUpcomingLessons(forStudent: studentID) { fetchedLessons, error in
+
+        FirestoreManager.shared.fetchUpcomingLessons(forStudent: studentID) { upcoming, canceled, error in
             DispatchQueue.main.async {
-                self.isLoading = false
                 if let error = error {
-                    self.errorMessage = "Error: \(error.localizedDescription)"
+                    self.errorMessage = "🔥 Error fetching lessons: \(error.localizedDescription)"
                 } else {
-                    self.upcomingLessons = fetchedLessons ?? []
-                    print("✅ Found \(upcomingLessons.count) upcoming lessons for student \(studentID)")
+                    self.upcomingLessons = upcoming ?? []
+                    self.canceledLessons = canceled ?? []
                 }
             }
         }
     }
+
     
     func cancelLesson(lessonID: String, tutorID: String) {
-        guard let studentID = authManager.user?.id else { return }
-
-        FirestoreManager.shared.cancelLesson(studentID: studentID, tutorID: tutorID, lessonID: lessonID) { success, error in
+        FirestoreManager.shared.updateBookingStatus(tutorID: tutorID, bookingID: lessonID, newStatus: "canceled") { success, error in
             DispatchQueue.main.async {
                 if success {
-                    self.upcomingLessons.removeAll { $0.id == lessonID }
+                    if let canceledLesson = upcomingLessons.first(where: { $0.id == lessonID }) {
+                        // ✅ Move the lesson to canceledLessons
+                        canceledLessons.append(canceledLesson)
+                    }
+                    // ✅ Remove from upcoming lessons
+                    upcomingLessons.removeAll { $0.id == lessonID }
                 } else {
-                    self.errorMessage = error ?? "Failed to cancel lesson."
+                    errorMessage = error?.localizedDescription ?? "Failed to cancel lesson."
                 }
             }
         }
     }
-
 }
 
 // Preview
