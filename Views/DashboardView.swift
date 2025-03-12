@@ -5,6 +5,7 @@ struct DashboardView: View {
     @State private var navigateToProfile = false
     @State private var navigateToBooking = false
     @State private var navigateToBookings = false
+    @State private var navigateToLessons = false
 
     var body: some View {
         NavigationView {
@@ -14,6 +15,7 @@ struct DashboardView: View {
                     .bold()
                     .padding()
 
+                // ✅ Edit Profile Button
                 Button(action: { navigateToProfile = true }) {
                     Text("Edit Profile")
                         .frame(maxWidth: .infinity)
@@ -24,14 +26,52 @@ struct DashboardView: View {
                         .padding(.horizontal)
                 }
 
-                NavigationLink("Test Availability", destination: TutorAvailabilityView())
-                    .frame(maxWidth: .infinity)
-                    .padding()
-                    .background(Color.green)
-                    .foregroundColor(.white)
-                    .cornerRadius(8)
-                    .padding(.horizontal)
+                // ✅ For Students: Book a Lesson and View Upcoming Lessons
+                if authManager.user?.isTutor == false {
+                    Button(action: { navigateToBooking = true }) {
+                        Text("📅 Book a Lesson")
+                            .frame(maxWidth: .infinity)
+                            .padding()
+                            .background(Color.green)
+                            .foregroundColor(.white)
+                            .cornerRadius(8)
+                            .padding(.horizontal)
+                    }
+                    .fullScreenCover(isPresented: $navigateToBooking) {
+                        StudentBookingView().environmentObject(authManager)
+                    }
 
+                    Button(action: { navigateToLessons = true }) {
+                        Text("📖 My Upcoming Lessons")
+                            .frame(maxWidth: .infinity)
+                            .padding()
+                            .background(Color.purple)
+                            .foregroundColor(.white)
+                            .cornerRadius(8)
+                            .padding(.horizontal)
+                    }
+                    .fullScreenCover(isPresented: $navigateToLessons) {
+                        StudentLessonsView().environmentObject(authManager)
+                    }
+                }
+
+                // ✅ For Tutors: View and Manage Pending Bookings
+                if authManager.user?.isTutor == true {
+                    Button(action: { navigateToBookings = true }) {
+                        Text("📝 My Pending Bookings")
+                            .frame(maxWidth: .infinity)
+                            .padding()
+                            .background(Color.orange)
+                            .foregroundColor(.white)
+                            .cornerRadius(8)
+                            .padding(.horizontal)
+                    }
+                    .fullScreenCover(isPresented: $navigateToBookings) {
+                        TutorBookingView().environmentObject(authManager)
+                    }
+                }
+
+                // ✅ Log Out Button
                 Button(action: {
                     print("🚪 DashboardView Logout Button Pressed")
                     authManager.logout()
@@ -43,34 +83,6 @@ struct DashboardView: View {
                         .foregroundColor(.white)
                         .cornerRadius(8)
                         .padding(.horizontal)
-                }
-                
-                Button(action: { navigateToBooking = true }) {
-                    Text("Book a Lesson")
-                        .frame(maxWidth: .infinity)
-                        .padding()
-                        .background(Color.green)
-                        .foregroundColor(.white)
-                        .cornerRadius(8)
-                        .padding(.horizontal)
-                }
-                .fullScreenCover(isPresented: $navigateToBooking) {
-                    StudentBookingView().environmentObject(authManager)
-                }
-                
-                if authManager.user?.isTutor == true { // Only show for tutors
-                    Button(action: { navigateToBookings = true }) {
-                        Text("My Bookings")
-                            .frame(maxWidth: .infinity)
-                            .padding()
-                            .background(Color.orange)
-                            .foregroundColor(.white)
-                            .cornerRadius(8)
-                            .padding(.horizontal)
-                    }
-                    .fullScreenCover(isPresented: $navigateToBookings) {
-                        TutorBookingView().environmentObject(authManager)
-                    }
                 }
 
                 Spacer()
@@ -84,8 +96,7 @@ struct DashboardView: View {
     }
 }
 
-struct DashboardView_Previews: PreviewProvider {
-    static var previews: some View {
-        DashboardView().environmentObject(AuthManager.shared)
-    }
+// Preview
+#Preview {
+    DashboardView().environmentObject(AuthManager.shared)
 }

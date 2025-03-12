@@ -68,10 +68,10 @@ struct TutorBookingView: View {
 
     /// Fetch all pending bookings for the tutor
     func fetchPendingBookings() {
-        guard let tutorID = authManager.user?.id else { return }
+        guard let tutorID = authManager.user?.id, let tutorName = authManager.user?.name else { return }
         
         isLoading = true
-        FirestoreManager.shared.fetchPendingBookings(forTutor: tutorID) { fetchedBookings, error in
+        FirestoreManager.shared.fetchPendingBookings(forTutor: tutorID, tutorName: tutorName) { fetchedBookings, error in
             DispatchQueue.main.async {
                 self.isLoading = false
                 if let error = error {
@@ -83,6 +83,7 @@ struct TutorBookingView: View {
             }
         }
     }
+
 
     /// Approve a booking
     /// Approve a booking

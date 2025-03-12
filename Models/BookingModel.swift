@@ -6,11 +6,14 @@
 //
 import Foundation
 
-struct Booking: Identifiable {
-    let id: String
-    let studentID: String
-    let studentName: String
-    let date: String
-    let timeSlot: String
-    let status: String
+struct Booking: Identifiable, Codable {
+    var id: String
+    var studentID: String
+    var studentName: String
+    var tutorID: String
+    var tutorName: String // ✅ Added this field
+    var date: String
+    var timeSlot: String
+    var status: String
 }
+
