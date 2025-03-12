@@ -1,20 +1,15 @@
-//
-//  Language_AppApp.swift
-//  Language App
-//
-//  Created by Nathan Webster on 3/5/25.
-//
-
 import SwiftUI
+import Firebase
 
 @main
-struct Language_AppApp: App {
-    let persistenceController = PersistenceController.shared
+struct LanguageApp: App {
+    @UIApplicationDelegateAdaptor(AppDelegate.self) var appDelegate // ✅ Ensure AppDelegate is used
+    @StateObject var authManager = AuthManager.shared // ✅ Ensure shared instance is used
 
     var body: some Scene {
         WindowGroup {
             ContentView()
-                .environment(\.managedObjectContext, persistenceController.container.viewContext)
+                .environmentObject(authManager) // ✅ Inject globally
         }
     }
 }
