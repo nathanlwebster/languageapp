@@ -363,6 +363,46 @@ class FirestoreManager {
             }
     }
 
+    func cancelLesson(studentID: String, tutorID: String, lessonID: String, completion: @escaping (Bool, String?) -> Void) {
+        let db = Firestore.firestore()
+        let lessonRef = db.collection("tutors").document(tutorID).collection("bookings").document(lessonID)
+
+        db.runTransaction({ (transaction, errorPointer) -> Any? in
+            let lessonDoc: DocumentSnapshot
+            do {
+                try lessonDoc = transaction.getDocument(lessonRef)
+            } catch {
+                errorPointer?.pointee = NSError(domain: "FirestoreError", code: -1, userInfo: [NSLocalizedDescriptionKey: "Failed to fetch lesson"])
+                return nil
+            }
+
+            guard let lessonData = lessonDoc.data(),
+                  let currentStatus = lessonData["status"] as? String else {
+                errorPointer?.pointee = NSError(domain: "FirestoreError", code: -2, userInfo: [NSLocalizedDescriptionKey: "Invalid lesson data"])
+                return nil
+            }
+
+            // ✅ Prevent cancellation of already canceled lessons
+            if currentStatus == "canceled" {
+                print("⚠️ Lesson \(lessonID) is already canceled.")
+                return nil
+            }
+
+            // ✅ Mark the lesson as canceled
+            print("🟢 Cancelling Lesson \(lessonID) for Student \(studentID)")
+            transaction.updateData(["status": "canceled"], forDocument: lessonRef)
+
+            return nil
+        }) { success, error in
+            if let error = error {
+                print("🔥 Transaction failed: \(error.localizedDescription)")
+                completion(false, error.localizedDescription)
+            } else {
+                print("✅ Lesson \(lessonID) successfully canceled for Student \(studentID)")
+                completion(true, nil)
+            }
+        }
+    }
 
 
     // ✅ Add a vocabulary word

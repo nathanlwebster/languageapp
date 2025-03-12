@@ -30,9 +30,22 @@ struct StudentLessonsView: View {
                             .font(.headline)
                         Text("Date: \(lesson.date)")
                         Text("Time: \(lesson.timeSlot)")
+                        
+                        Button(action: {
+                            cancelLesson(lessonID: lesson.id, tutorID: lesson.tutorID)
+                        }) {
+                            Text("❌ Cancel Lesson")
+                                .frame(maxWidth: .infinity)
+                                .padding()
+                                .background(Color.red)
+                                .foregroundColor(.white)
+                                .cornerRadius(8)
+                        }
+                        .buttonStyle(.borderless)
                     }
                 }
             }
+
 
             Spacer()
         }
@@ -60,6 +73,21 @@ struct StudentLessonsView: View {
             }
         }
     }
+    
+    func cancelLesson(lessonID: String, tutorID: String) {
+        guard let studentID = authManager.user?.id else { return }
+
+        FirestoreManager.shared.cancelLesson(studentID: studentID, tutorID: tutorID, lessonID: lessonID) { success, error in
+            DispatchQueue.main.async {
+                if success {
+                    self.upcomingLessons.removeAll { $0.id == lessonID }
+                } else {
+                    self.errorMessage = error ?? "Failed to cancel lesson."
+                }
+            }
+        }
+    }
+
 }
 
 // Preview
