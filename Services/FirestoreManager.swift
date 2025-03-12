@@ -268,10 +268,11 @@ class FirestoreManager {
 
     
     // ✅ Confirm or reject a booking
+    // ✅ Confirm or reject a booking (now also restores availability if canceled)
     func updateBookingStatus(tutorID: String, bookingID: String, newStatus: String, completion: @escaping (Bool, Error?) -> Void) {
         let db = Firestore.firestore()
         let bookingRef = db.collection("tutors").document(tutorID).collection("bookings").document(bookingID)
-        
+
         db.runTransaction({ (transaction, errorPointer) -> Any? in
             let bookingDoc: DocumentSnapshot
             do {
@@ -288,9 +289,24 @@ class FirestoreManager {
             }
 
             // ✅ Prevent multiple updates by checking if status has changed
-            if currentStatus != "pending" {
-                print("⚠️ Booking \(bookingID) is no longer pending (current: \(currentStatus)), skipping update.")
+            if currentStatus == newStatus {
+                print("⚠️ Booking \(bookingID) is already \(newStatus), skipping update.")
                 return nil
+            }
+
+            // ✅ If canceling, restore the time slot to tutor's availability
+            if newStatus == "canceled",
+               let date = currentData["date"] as? String,
+               let timeSlot = currentData["timeSlot"] as? String {
+
+                let availabilityRef = db.collection("tutors").document(tutorID).collection("availability").document(date)
+
+                // ✅ Restore the time slot
+                transaction.updateData([
+                    "timeSlots": FieldValue.arrayUnion([timeSlot])
+                ], forDocument: availabilityRef)
+
+                print("✅ Restored \(timeSlot) on \(date) to tutor \(tutorID)'s availability")
             }
 
             // ✅ Update booking status inside transaction
