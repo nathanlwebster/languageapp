@@ -2,11 +2,13 @@ import SwiftUI
 import FirebaseFirestore
 
 struct TutorAvailabilityView: View {
+    @EnvironmentObject var authManager: AuthManager
     @State private var selectedDate = Date()
     @State private var selectedTime = ""
     @State private var availableSlots: [String] = []
     @State private var errorMessage: String?
     @State private var isLoading = false
+    @State private var navigateBackToTutorDashboard = false
     let tutorID: String = "J6s60kEMV1WPaAGT8zTL7Ruiz3q1" // Example ID
 
     var body: some View {
@@ -14,6 +16,19 @@ struct TutorAvailabilityView: View {
             Text("Manage Availability")
                 .font(.title2)
                 .bold()
+            
+            Button(action: { navigateBackToTutorDashboard = true }) {
+                Text("← Back to Dashboard")
+                    .frame(maxWidth: .infinity)
+                    .padding()
+                    .background(Color.gray)
+                    .foregroundColor(.white)
+                    .cornerRadius(8)
+            }
+            .fullScreenCover(isPresented: $navigateBackToTutorDashboard) {
+                TutorDashboardView().environmentObject(authManager)
+            }
+
 
             DatePicker("Select a Date", selection: $selectedDate, displayedComponents: .date)
                 .datePickerStyle(.compact)

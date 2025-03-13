@@ -6,12 +6,25 @@ struct TutorBookingView: View {
     @State private var errorMessage: String?
     @State private var isLoading: Bool = false
     @State private var pendingBookings: [Booking] = []
+    @State private var navigateBackToTutorDashboard = false
 
     var body: some View {
         VStack(spacing: 20) {
             Text("My Bookings")
                 .font(.title2)
                 .bold()
+            
+            Button(action: { navigateBackToTutorDashboard = true }) {
+                Text("← Back to Dashboard")
+                    .frame(maxWidth: .infinity)
+                    .padding()
+                    .background(Color.gray)
+                    .foregroundColor(.white)
+                    .cornerRadius(8)
+            }
+            .fullScreenCover(isPresented: $navigateBackToTutorDashboard) {
+                TutorDashboardView().environmentObject(authManager)
+            }
 
             if isLoading {
                 ProgressView()

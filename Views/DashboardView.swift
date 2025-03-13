@@ -4,8 +4,8 @@ struct DashboardView: View {
     @EnvironmentObject var authManager: AuthManager
     @State private var navigateToProfile = false
     @State private var navigateToBooking = false
-    @State private var navigateToBookings = false
     @State private var navigateToLessons = false
+    @State private var navigateToTutorDashboard = false
 
     var body: some View {
         NavigationView {
@@ -55,10 +55,10 @@ struct DashboardView: View {
                     }
                 }
 
-                // ✅ For Tutors: View and Manage Pending Bookings
+                // ✅ For Tutors: Access Tutor Dashboard
                 if authManager.user?.isTutor == true {
-                    Button(action: { navigateToBookings = true }) {
-                        Text("📝 My Pending Bookings")
+                    Button(action: { navigateToTutorDashboard = true }) {
+                        Text("📊 Tutor Dashboard")
                             .frame(maxWidth: .infinity)
                             .padding()
                             .background(Color.orange)
@@ -66,8 +66,8 @@ struct DashboardView: View {
                             .cornerRadius(8)
                             .padding(.horizontal)
                     }
-                    .fullScreenCover(isPresented: $navigateToBookings) {
-                        TutorBookingView().environmentObject(authManager)
+                    .fullScreenCover(isPresented: $navigateToTutorDashboard) {
+                        TutorDashboardView().environmentObject(authManager)
                     }
                 }
 

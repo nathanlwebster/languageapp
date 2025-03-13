@@ -417,7 +417,59 @@ class FirestoreManager {
             }
         }
     }
+    
+    func fetchTutorLessons(forTutor tutorID: String, completion: @escaping ([Booking]?, [Booking]?, Error?) -> Void) {
+        let db = Firestore.firestore()
+        let today = Date()
+        let formatter = DateFormatter()
+        formatter.dateFormat = "yyyyMMdd"
+        let todayString = formatter.string(from: today)
 
+        print("📡 Querying Firestore for scheduled & completed lessons for tutor: \(tutorID)")
+
+        db.collection("tutors").document(tutorID).collection("bookings")
+            .order(by: "date", descending: false)
+            .getDocuments { snapshot, error in
+                if let error = error {
+                    print("🔥 Error fetching lessons: \(error.localizedDescription)")
+                    completion(nil, nil, error)
+                    return
+                }
+
+                guard let documents = snapshot?.documents else {
+                    print("⚠️ No lessons found for tutor: \(tutorID)")
+                    completion([], [], nil)
+                    return
+                }
+
+                var scheduledLessons: [Booking] = []
+                var completedLessons: [Booking] = []
+
+                for doc in documents {
+                    let data = doc.data()
+                    let lesson = Booking(
+                        id: doc.documentID,
+                        studentID: data["studentID"] as? String ?? "",
+                        studentName: data["studentName"] as? String ?? "Unknown",
+                        tutorID: tutorID,
+                        tutorName: data["tutorName"] as? String ?? "Unknown",
+                        date: data["date"] as? String ?? "",
+                        timeSlot: data["timeSlot"] as? String ?? "",
+                        status: data["status"] as? String ?? "confirmed"
+                    )
+
+                    // ✅ Sort lessons into scheduled or completed
+                    if lesson.status == "completed" {
+                        completedLessons.append(lesson)
+                    } else if lesson.status == "confirmed" && lesson.date >= todayString {
+                        scheduledLessons.append(lesson)
+                    }
+                }
+
+                print("✅ Found \(scheduledLessons.count) scheduled lessons & \(completedLessons.count) completed lessons for tutor \(tutorID)")
+                completion(scheduledLessons, completedLessons, nil)
+            }
+    }
 
     // ✅ Add a vocabulary word
     func addVocabularyWord(userID: String, word: String, translation: String, exampleSentence: String, difficultyLevel: String, completion: @escaping (Error?) -> Void) {
