@@ -9,6 +9,7 @@ struct StudentBookingView: View {
     @State private var availableTimeSlots: [String] = []
     @State private var selectedTimeSlot: String?
     @State private var errorMessage: String?
+    @State private var navigateBackToDashboard = false
 
     var body: some View {
         ScrollView {
@@ -16,6 +17,18 @@ struct StudentBookingView: View {
                 Text("Book a Lesson")
                     .font(.title2)
                     .bold()
+                
+                Button(action: { navigateBackToDashboard = true }) {
+                    Text("← Back to Dashboard")
+                        .frame(maxWidth: .infinity)
+                        .padding()
+                        .background(Color.gray)
+                        .foregroundColor(.white)
+                        .cornerRadius(8)
+                }
+                .fullScreenCover(isPresented: $navigateBackToDashboard) {
+                    DashboardView().environmentObject(authManager)
+                }
                 
                 if availableTutors.isEmpty {
                     ProgressView("Loading tutors...")

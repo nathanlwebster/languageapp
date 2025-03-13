@@ -295,19 +295,17 @@ class FirestoreManager {
             }
 
             // ✅ If canceling, restore the time slot to tutor's availability
-            if newStatus == "canceled",
-               let date = currentData["date"] as? String,
-               let timeSlot = currentData["timeSlot"] as? String {
-
-                let availabilityRef = db.collection("tutors").document(tutorID).collection("availability").document(date)
-
-                // ✅ Restore the time slot
-                transaction.updateData([
-                    "timeSlots": FieldValue.arrayUnion([timeSlot])
-                ], forDocument: availabilityRef)
-
-                print("✅ Restored \(timeSlot) on \(date) to tutor \(tutorID)'s availability")
+            if newStatus == "canceled" {
+                // ✅ Restore the time slot to tutor's availability when canceled
+                if let date = currentData["date"] as? String, let timeSlot = currentData["timeSlot"] as? String {
+                    let availabilityRef = db.collection("tutors").document(tutorID).collection("availability").document(date)
+                    transaction.updateData(["timeSlots": FieldValue.arrayUnion([timeSlot])], forDocument: availabilityRef)
+                    print("✅ Restored \(timeSlot) on \(date) to tutor \(tutorID)'s availability")
+                }
+            } else if newStatus == "completed" {
+                print("✅ Marking lesson \(bookingID) as completed.")
             }
+
 
             // ✅ Update booking status inside transaction
             print("🟢 Updating Booking \(bookingID) from \(currentStatus) → \(newStatus)")
@@ -470,6 +468,53 @@ class FirestoreManager {
                 completion(scheduledLessons, completedLessons, nil)
             }
     }
+    
+    func fetchTutorBookings(forTutor tutorID: String, tutorName: String, completion: @escaping ([Booking]?, [Booking]?, Error?) -> Void) {
+        print("📡 Querying Firestore for tutor bookings...")
+
+        db.collection("tutors").document(tutorID).collection("bookings")
+            .order(by: "date", descending: false)
+            .getDocuments { snapshot, error in
+                if let error = error {
+                    print("🔥 Error fetching tutor bookings: \(error.localizedDescription)")
+                    completion(nil, nil, error)
+                    return
+                }
+
+                guard let documents = snapshot?.documents else {
+                    print("⚠️ No bookings found for tutor: \(tutorID)")
+                    completion([], [], nil)
+                    return
+                }
+
+                var pendingBookings: [Booking] = []
+                var confirmedBookings: [Booking] = []
+
+                for doc in documents {
+                    let data = doc.data()
+                    let booking = Booking(
+                        id: doc.documentID,
+                        studentID: data["studentID"] as? String ?? "",
+                        studentName: data["studentName"] as? String ?? "Unknown",
+                        tutorID: tutorID,
+                        tutorName: tutorName,
+                        date: data["date"] as? String ?? "",
+                        timeSlot: data["timeSlot"] as? String ?? "",
+                        status: data["status"] as? String ?? "pending"
+                    )
+
+                    if booking.status == "pending" {
+                        pendingBookings.append(booking)
+                    } else if booking.status == "confirmed" {
+                        confirmedBookings.append(booking)
+                    }
+                }
+
+                print("✅ Found \(pendingBookings.count) pending bookings and \(confirmedBookings.count) confirmed bookings.")
+                completion(pendingBookings, confirmedBookings, nil)
+            }
+    }
+
 
     // ✅ Add a vocabulary word
     func addVocabularyWord(userID: String, word: String, translation: String, exampleSentence: String, difficultyLevel: String, completion: @escaping (Error?) -> Void) {

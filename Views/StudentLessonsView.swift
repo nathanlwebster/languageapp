@@ -6,12 +6,25 @@ struct StudentLessonsView: View {
     @State private var errorMessage: String?
     @State private var isLoading: Bool = false
     @State private var canceledLessons: [Booking] = []
+    @State private var navigateBackToDashboard = false
 
     var body: some View {
         VStack(spacing: 20) {
             Text("Upcoming Lessons")
                 .font(.title2)
                 .bold()
+            
+            Button(action: { navigateBackToDashboard = true }) {
+                Text("← Back to Dashboard")
+                    .frame(maxWidth: .infinity)
+                    .padding()
+                    .background(Color.gray)
+                    .foregroundColor(.white)
+                    .cornerRadius(8)
+            }
+            .fullScreenCover(isPresented: $navigateBackToDashboard) {
+                DashboardView().environmentObject(authManager)
+            }
 
             if isLoading {
                 ProgressView("Loading lessons...")
