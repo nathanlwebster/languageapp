@@ -9,7 +9,10 @@ struct TutorAvailabilityView: View {
     @State private var errorMessage: String?
     @State private var isLoading = false
     @State private var navigateBackToTutorDashboard = false
-    let tutorID: String = "J6s60kEMV1WPaAGT8zTL7Ruiz3q1" // Example ID
+
+    var tutorID: String? {
+        return authManager.user?.isTutor == true ? authManager.user?.id : nil
+    }
 
     var body: some View {
         VStack(spacing: 20) {
@@ -29,7 +32,6 @@ struct TutorAvailabilityView: View {
                 TutorDashboardView().environmentObject(authManager)
             }
 
-
             DatePicker("Select a Date", selection: $selectedDate, displayedComponents: .date)
                 .datePickerStyle(.compact)
                 .padding()
@@ -40,8 +42,8 @@ struct TutorAvailabilityView: View {
                     .padding()
 
                 Button(action: {
-                    guard !selectedTime.isEmpty else { return }
-                    addAvailability()
+                    guard let tutorID = tutorID, !selectedTime.isEmpty else { return }
+                    addAvailability(for: tutorID)
                 }) {
                     Text("Add Time")
                         .frame(maxWidth: .infinity)
@@ -70,7 +72,7 @@ struct TutorAvailabilityView: View {
                         HStack {
                             Text(slot)
                             Spacer()
-                            Button(action: { removeAvailability(slot) }) {
+                            Button(action: { if let tutorID = tutorID { removeAvailability(for: tutorID, slot: slot) } }) {
                                 Image(systemName: "trash")
                                     .foregroundColor(.red)
                             }
@@ -83,12 +85,14 @@ struct TutorAvailabilityView: View {
         }
         .padding()
         .task(id: selectedDate) {
-            await fetchAvailability()
+            if let tutorID = tutorID {
+                await fetchAvailability(for: tutorID)
+            }
         }
     }
 
     /// Fetch availability from Firestore
-    func fetchAvailability() async {
+    func fetchAvailability(for tutorID: String) async {
         isLoading = true
         errorMessage = nil
         availableSlots.removeAll()
@@ -114,7 +118,7 @@ struct TutorAvailabilityView: View {
     }
 
     /// Add a time slot to Firestore
-    func addAvailability() {
+    func addAvailability(for tutorID: String) {
         let dateKey = formatDate(selectedDate)
 
         let db = Firestore.firestore()
@@ -134,7 +138,7 @@ struct TutorAvailabilityView: View {
     }
 
     /// Remove a time slot from Firestore
-    func removeAvailability(_ slot: String) {
+    func removeAvailability(for tutorID: String, slot: String) {
         let dateKey = formatDate(selectedDate)
 
         let db = Firestore.firestore()
@@ -160,5 +164,5 @@ struct TutorAvailabilityView: View {
 
 // Preview
 #Preview {
-    TutorAvailabilityView()
+    TutorAvailabilityView().environmentObject(AuthManager.shared)
 }

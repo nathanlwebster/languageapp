@@ -91,14 +91,15 @@ struct TutorDashboardView: View {
     /// Fetch currently scheduled and completed lessons for the tutor
     func fetchLessons() {
         guard let tutorID = authManager.user?.id else { return }
-        
+
         FirestoreManager.shared.fetchTutorLessons(forTutor: tutorID) { scheduled, completed, error in
             DispatchQueue.main.async {
                 if let error = error {
                     self.errorMessage = "🔥 Error fetching lessons: \(error.localizedDescription)"
                 } else {
-                    self.scheduledLessons = scheduled ?? []
+                    self.scheduledLessons = scheduled ?? []  // ✅ Ensure scheduled lessons update correctly
                     self.completedLessons = completed ?? []
+                    print("📊 Updated Dashboard: \(self.scheduledLessons.count) scheduled, \(self.completedLessons.count) completed")
                 }
             }
         }

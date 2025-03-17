@@ -58,39 +58,38 @@ class FirestoreManager {
     }
 
     // ✅ Fetch available tutors, excluding the student themselves
-    func fetchAvailableTutors(excludeUserID: String) async throws -> [UserModel] {
-        let db = Firestore.firestore()
+    func fetchAvailableTutors() async throws -> [UserModel] {
         let snapshot = try await db.collection("users").whereField("isTutor", isEqualTo: true).getDocuments()
 
-        let tutors = snapshot.documents.compactMap { doc -> UserModel? in
+        let tutors = snapshot.documents.compactMap { doc in
             let data = doc.data()
-            let id = doc.documentID
+            let tutorID = doc.documentID // ✅ Ensure we fetch tutors by ID
+            let tutorName = data["name"] as? String ?? "Unknown"
 
-            if id == excludeUserID { return nil } // Exclude student themselves
+            print("📌 Firestore Tutor Loaded - ID: \(tutorID), Name: \(tutorName)") // ✅ Debug log
 
             return UserModel(
-                id: id,
-                name: data["name"] as? String ?? "Unknown",
+                id: tutorID,
+                name: tutorName,
                 isTutor: true,
                 languages: data["languages"] as? [String] ?? [],
                 bio: data["bio"] as? String ?? "",
                 profileImageURL: data["profileImageURL"] as? String
             )
         }
+        
         return tutors
     }
 
     // ✅ Fetch available dates for a tutor
     func fetchAvailableDates(tutorID: String) async throws -> [String] {
-        let db = Firestore.firestore()
         let snapshot = try await db.collection("tutors").document(tutorID).collection("availability").getDocuments()
-
-        return snapshot.documents.map { $0.documentID } // Return available dates
+        
+        return snapshot.documents.map { $0.documentID } // ✅ Fetch available dates **by tutorID** only
     }
 
     // ✅ Fetch available time slots for a tutor on a specific date
     func fetchAvailableTimeSlots(tutorID: String, date: String) async throws -> [String] {
-        let db = Firestore.firestore()
         let docRef = db.collection("tutors").document(tutorID).collection("availability").document(date)
 
         let document = try await docRef.getDocument()
@@ -110,66 +109,41 @@ class FirestoreManager {
         timeSlot: String,
         completion: @escaping (Bool, String?) -> Void
     ) {
-        let tutorUserRef = db.collection("users").document(tutorID) // ✅ Correct location for tutor name
-        let tutorRef = db.collection("tutors").document(tutorID)
-        let bookingRef = tutorRef.collection("bookings").document()
-        let availabilityRef = tutorRef.collection("availability").document(date)
+        let tutorUserRef = db.collection("users").document(tutorID)
 
-        print("🟢 Booking Session for Student \(studentID) with Tutor \(tutorID) on \(date) at \(timeSlot)")
-
-        // 🔍 Fetch Tutor Name from `users/{tutorID}` Before Storing Booking
         tutorUserRef.getDocument { document, error in
             if let error = error {
                 print("🔥 Firestore error fetching tutor name: \(error.localizedDescription)")
-            }
-            
-            guard let document = document, document.exists, let tutorData = document.data(),
-                  let tutorName = tutorData["name"] as? String else {
-                print("⚠️ Failed to retrieve tutor name from users/{tutorID}, storing as 'Unknown'")
+                completion(false, "Error fetching tutor name")
                 return
             }
 
-            print("✅ Retrieved tutor name: \(tutorName) for tutorID: \(tutorID)")
+            guard let document = document, document.exists,
+                  let tutorData = document.data(),
+                  let tutorName = tutorData["name"] as? String else {
+                print("⚠️ Failed to retrieve tutor name from users/{tutorID}, storing as 'Unknown'")
+                completion(false, "Tutor name not found")
+                return
+            }
 
-            self.db.runTransaction({ (transaction, errorPointer) -> Any? in
-                let availabilityDoc: DocumentSnapshot
-                do {
-                    try availabilityDoc = transaction.getDocument(availabilityRef)
-                } catch {
-                    errorPointer?.pointee = NSError(domain: "FirestoreError", code: -1, userInfo: [NSLocalizedDescriptionKey: "Failed to fetch availability"])
-                    return nil
-                }
+            print("✅ Booking Lesson: Tutor ID: \(tutorID), Name: \(tutorName)")
 
-                guard var timeSlots = availabilityDoc.data()?["timeSlots"] as? [String], timeSlots.contains(timeSlot) else {
-                    errorPointer?.pointee = NSError(domain: "FirestoreError", code: -2, userInfo: [NSLocalizedDescriptionKey: "Time slot not available"])
-                    return nil
-                }
+            let bookingData: [String: Any] = [
+                "studentID": studentID,
+                "studentName": studentName,
+                "tutorID": tutorID,
+                "tutorName": tutorName, // ✅ Ensure we always fetch the latest tutor name
+                "date": date,
+                "timeSlot": timeSlot,
+                "status": "pending"
+            ]
 
-                // Remove the booked slot
-                timeSlots.removeAll { $0 == timeSlot }
-                transaction.updateData(["timeSlots": timeSlots], forDocument: availabilityRef)
-
-                // ✅ Store booking with tutorName included
-                let bookingData: [String: Any] = [
-                    "studentID": studentID,
-                    "studentName": studentName,
-                    "tutorID": tutorID,
-                    "tutorName": tutorName, // ✅ Now fetched from `users/{tutorID}`
-                    "date": date,
-                    "timeSlot": timeSlot,
-                    "status": "pending"
-                ]
-
-                transaction.setData(bookingData, forDocument: bookingRef)
-
-                print("✅ Booking saved under Tutor \(tutorID) with Tutor Name: \(tutorName)")
-                return nil
-            }) { (success, error) in
+            self.db.collection("tutors").document(tutorID).collection("bookings").document().setData(bookingData) { error in
                 if let error = error {
                     print("🔥 Booking failed: \(error.localizedDescription)")
                     completion(false, error.localizedDescription)
                 } else {
-                    print("✅ Booking successful for Tutor \(tutorID)")
+                    print("✅ Booking successful for Tutor ID: \(tutorID) (Name: \(tutorName))")
                     completion(true, nil)
                 }
             }
@@ -469,7 +443,7 @@ class FirestoreManager {
             }
     }
     
-    func fetchTutorBookings(forTutor tutorID: String, tutorName: String, completion: @escaping ([Booking]?, [Booking]?, Error?) -> Void) {
+    func fetchTutorBookings(forTutor tutorID: String, completion: @escaping ([Booking]?, [Booking]?, Error?) -> Void) {
         print("📡 Querying Firestore for tutor bookings...")
 
         db.collection("tutors").document(tutorID).collection("bookings")
@@ -497,7 +471,7 @@ class FirestoreManager {
                         studentID: data["studentID"] as? String ?? "",
                         studentName: data["studentName"] as? String ?? "Unknown",
                         tutorID: tutorID,
-                        tutorName: tutorName,
+                        tutorName: data["tutorName"] as? String ?? "Unknown",
                         date: data["date"] as? String ?? "",
                         timeSlot: data["timeSlot"] as? String ?? "",
                         status: data["status"] as? String ?? "pending"

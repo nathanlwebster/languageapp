@@ -118,7 +118,7 @@ struct TutorBookingView: View {
         guard let tutorID = authManager.user?.id, let tutorName = authManager.user?.name else { return }
 
         isLoading = true
-        FirestoreManager.shared.fetchTutorBookings(forTutor: tutorID, tutorName: tutorName) { pending, confirmed, error in
+        FirestoreManager.shared.fetchTutorBookings(forTutor: tutorID) { pending, confirmed, error in
             DispatchQueue.main.async {
                 self.isLoading = false
                 if let error = error {

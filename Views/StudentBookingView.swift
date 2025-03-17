@@ -164,14 +164,44 @@ struct StudentBookingView: View {
     // ✅ Load available tutors
     func loadAvailableTutors() async {
         guard let studentID = authManager.user?.id else {
-            errorMessage = "Error: No user logged in."
+            DispatchQueue.main.async {
+                errorMessage = "Error: No user logged in."
+            }
             return
         }
 
         do {
-            let tutors = try await FirestoreManager.shared.fetchAvailableTutors(excludeUserID: studentID)
+            let tutors = try await FirestoreManager.shared.fetchAvailableTutors()
+            
+            print("🟢 Loaded Tutors from Firestore:")
+            for tutor in tutors {
+                print("➡️ Tutor ID: \(tutor.id), Name: \(tutor.name)")
+            }
+
+            // ✅ Check availability for all tutors concurrently
+            let availableTutorsWithSlots = await withTaskGroup(of: (UserModel, Bool).self) { group -> [UserModel] in
+                for tutor in tutors {
+                    group.addTask {
+                        let isAvailable = await hasAvailability(tutorID: tutor.id)
+                        return (tutor, isAvailable)
+                    }
+                }
+
+                var tutorsWithAvailability: [UserModel] = []
+                for await (tutor, isAvailable) in group {
+                    if isAvailable {
+                        tutorsWithAvailability.append(tutor)
+                    }
+                }
+                return tutorsWithAvailability
+            }
+
             DispatchQueue.main.async {
-                availableTutors = tutors
+                print("✅ Tutors with Availability:")
+                for tutor in availableTutorsWithSlots {
+                    print("✔️ Tutor ID: \(tutor.id), Name: \(tutor.name)")
+                }
+                availableTutors = availableTutorsWithSlots
             }
         } catch {
             DispatchQueue.main.async {
@@ -183,8 +213,10 @@ struct StudentBookingView: View {
     // ✅ Fetch available dates for the selected tutor
     func fetchAvailableDates(for tutor: UserModel) async {
         do {
+            print("📡 Fetching available dates for Tutor ID: \(tutor.id), Name: \(tutor.name)")
             let dates = try await FirestoreManager.shared.fetchAvailableDates(tutorID: tutor.id)
             DispatchQueue.main.async {
+                print("✅ Available Dates for \(tutor.name): \(dates)")
                 availableDates = dates
                 selectedDate = nil
             }
@@ -198,8 +230,10 @@ struct StudentBookingView: View {
     // ✅ Fetch available time slots for the selected date
     func fetchAvailableTimeSlots(for tutor: UserModel, date: String) async {
         do {
+            print("📡 Fetching available time slots for Tutor ID: \(tutor.id), Name: \(tutor.name) on \(date)")
             let slots = try await FirestoreManager.shared.fetchAvailableTimeSlots(tutorID: tutor.id, date: date)
             DispatchQueue.main.async {
+                print("✅ Available Time Slots for \(tutor.name) on \(date): \(slots)")
                 availableTimeSlots = slots
                 selectedTimeSlot = nil
             }
@@ -207,6 +241,16 @@ struct StudentBookingView: View {
             DispatchQueue.main.async {
                 errorMessage = "🔥 Error loading time slots: \(error.localizedDescription)"
             }
+        }
+    }
+    
+    func hasAvailability(tutorID: String) async -> Bool {
+        do {
+            let dates = try await FirestoreManager.shared.fetchAvailableDates(tutorID: tutorID)
+            return !dates.isEmpty
+        } catch {
+            print("🔥 Error checking availability for \(tutorID): \(error.localizedDescription)")
+            return false
         }
     }
 
