@@ -121,7 +121,7 @@ class FirestoreManager {
             guard let document = document, document.exists,
                   let tutorData = document.data(),
                   let tutorName = tutorData["name"] as? String else {
-                print("⚠️ Failed to retrieve tutor name from users/{tutorID}, storing as 'Unknown'")
+                print("⚠️ Failed to retrieve tutor name from users/{tutorID}")
                 completion(false, "Tutor name not found")
                 return
             }
@@ -132,18 +132,28 @@ class FirestoreManager {
                 "studentID": studentID,
                 "studentName": studentName,
                 "tutorID": tutorID,
-                "tutorName": tutorName, // ✅ Ensure we always fetch the latest tutor name
+                "tutorName": tutorName,
                 "date": date,
                 "timeSlot": timeSlot,
                 "status": "pending"
             ]
 
-            self.db.collection("tutors").document(tutorID).collection("bookings").document().setData(bookingData) { error in
+            let bookingRef = self.db.collection("tutors").document(tutorID).collection("bookings").document()
+
+            bookingRef.setData(bookingData) { error in
                 if let error = error {
                     print("🔥 Booking failed: \(error.localizedDescription)")
                     completion(false, error.localizedDescription)
                 } else {
-                    print("✅ Booking successful for Tutor ID: \(tutorID) (Name: \(tutorName))")
+                    print("✅ Booking successful for Tutor ID: \(tutorID)")
+
+                    // ✅ Send Push Notification to Tutor
+                    NotificationManager.shared.sendNotification(
+                        toUserID: tutorID,
+                        title: "New Booking Request",
+                        body: "\(studentName) has requested a lesson on \(date) at \(timeSlot)."
+                    )
+
                     completion(true, nil)
                 }
             }
@@ -257,7 +267,8 @@ class FirestoreManager {
             }
 
             guard let currentData = bookingDoc.data(),
-                  let currentStatus = currentData["status"] as? String else {
+                  let currentStatus = currentData["status"] as? String,
+                  let studentID = currentData["studentID"] as? String else { // ✅ Extract studentID safely
                 errorPointer?.pointee = NSError(domain: "FirestoreError", code: -2, userInfo: [NSLocalizedDescriptionKey: "Invalid booking data"])
                 return nil
             }
@@ -270,7 +281,6 @@ class FirestoreManager {
 
             // ✅ If canceling, restore the time slot to tutor's availability
             if newStatus == "canceled" {
-                // ✅ Restore the time slot to tutor's availability when canceled
                 if let date = currentData["date"] as? String, let timeSlot = currentData["timeSlot"] as? String {
                     let availabilityRef = db.collection("tutors").document(tutorID).collection("availability").document(date)
                     transaction.updateData(["timeSlots": FieldValue.arrayUnion([timeSlot])], forDocument: availabilityRef)
@@ -279,7 +289,6 @@ class FirestoreManager {
             } else if newStatus == "completed" {
                 print("✅ Marking lesson \(bookingID) as completed.")
             }
-
 
             // ✅ Update booking status inside transaction
             print("🟢 Updating Booking \(bookingID) from \(currentStatus) → \(newStatus)")
@@ -296,6 +305,7 @@ class FirestoreManager {
             }
         }
     }
+
     
     // ✅ Fetch upcoming lessons for a student
     func fetchUpcomingLessons(forStudent studentID: String, completion: @escaping ([Booking]?, [Booking]?, Error?) -> Void) {

@@ -7,6 +7,8 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
+		6171C1EB2D8874FB00DCF1D7 /* FirebaseAppCheck in Frameworks */ = {isa = PBXBuildFile; productRef = 61CB953B2D79F6E5007D9B79 /* FirebaseAppCheck */; };
+		6171C2222D88A8DD00DCF1D7 /* FirebaseMessaging in Frameworks */ = {isa = PBXBuildFile; productRef = 6171C2212D88A8DD00DCF1D7 /* FirebaseMessaging */; };
 		6197B3E32D7A4B8A0051A394 /* AppDelegate.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6197B3E22D7A4B850051A394 /* AppDelegate.swift */; };
 		61CB95362D79F6E5007D9B79 /* FirebaseAnalytics in Frameworks */ = {isa = PBXBuildFile; productRef = 61CB95352D79F6E5007D9B79 /* FirebaseAnalytics */; };
 		61CB95382D79F6E5007D9B79 /* FirebaseAnalyticsOnDeviceConversion in Frameworks */ = {isa = PBXBuildFile; productRef = 61CB95372D79F6E5007D9B79 /* FirebaseAnalyticsOnDeviceConversion */; };
@@ -117,6 +119,7 @@
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				6171C1EB2D8874FB00DCF1D7 /* FirebaseAppCheck in Frameworks */,
 				61CB95432D79FDD1007D9B79 /* AIAEC in Frameworks */,
 				61CB95452D79FDD1007D9B79 /* AIAECLL in Frameworks */,
 				61CB954B2D79FDD1007D9B79 /* AudioBeauty in Frameworks */,
@@ -128,6 +131,7 @@
 				61CB953A2D79F6E5007D9B79 /* FirebaseAnalyticsWithoutAdIdSupport in Frameworks */,
 				61CB95382D79F6E5007D9B79 /* FirebaseAnalyticsOnDeviceConversion in Frameworks */,
 				61CB95472D79FDD1007D9B79 /* AINS in Frameworks */,
+				6171C2222D88A8DD00DCF1D7 /* FirebaseMessaging in Frameworks */,
 				61CB95492D79FDD1007D9B79 /* AINSLL in Frameworks */,
 				61CB95692D7A1F4B007D9B79 /* FirebaseFirestore in Frameworks */,
 			);
@@ -232,6 +236,7 @@
 				61CB955B2D7A0AFD007D9B79 /* FirebaseAuth */,
 				61CB95602D7A136C007D9B79 /* FirebaseCore */,
 				61CB95682D7A1F4B007D9B79 /* FirebaseFirestore */,
+				6171C2212D88A8DD00DCF1D7 /* FirebaseMessaging */,
 			);
 			productName = "Language App";
 			productReference = 61CB95022D7935CD007D9B79 /* Language App.app */;
@@ -701,6 +706,11 @@
 /* End XCRemoteSwiftPackageReference section */
 
 /* Begin XCSwiftPackageProductDependency section */
+		6171C2212D88A8DD00DCF1D7 /* FirebaseMessaging */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = 61CB95342D79F6E5007D9B79 /* XCRemoteSwiftPackageReference "firebase-ios-sdk" */;
+			productName = FirebaseMessaging;
+		};
 		61CB95352D79F6E5007D9B79 /* FirebaseAnalytics */ = {
 			isa = XCSwiftPackageProductDependency;
 			package = 61CB95342D79F6E5007D9B79 /* XCRemoteSwiftPackageReference "firebase-ios-sdk" */;

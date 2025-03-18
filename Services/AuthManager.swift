@@ -1,13 +1,7 @@
-//
-//  AuthManager.swift
-//  Language App
-//
-//  Created by Nathan Webster on 3/6/25.
-//
-
 import FirebaseAuth
-import SwiftUI
 import FirebaseFirestore
+import FirebaseMessaging
+import SwiftUI
 
 class AuthManager: ObservableObject {
     @Published var user: UserModel?
@@ -17,6 +11,7 @@ class AuthManager: ObservableObject {
     @Published var logoutInProgress = false // ✅ Keep track of logout state
 
     static let shared = AuthManager()
+    private let db = Firestore.firestore()
 
     func checkAuthState() {
         guard !logoutInProgress else {
@@ -50,6 +45,14 @@ class AuthManager: ObservableObject {
                     }
 
                     self.checkIfProfileExists(userID: user.uid)
+
+                    // ✅ Update FCM token upon login
+                    if let fcmToken = Messaging.messaging().fcmToken {
+                        self.updateFCMToken(userID: user.uid, fcmToken: fcmToken)
+                    } else {
+                        print("⚠️ No FCM token found at login")
+                    }
+
                 } else {
                     print("🚨 Firebase says NO USER is logged in. Checking why...")
 
@@ -66,12 +69,7 @@ class AuthManager: ObservableObject {
         }
     }
 
-
-
-
     func checkIfProfileExists(userID: String) {
-        let db = Firestore.firestore()
-
         DispatchQueue.main.async {
             print("🔄 Resetting userHasProfile to nil while checking Firestore...")
             self.userHasProfile = nil
@@ -110,20 +108,26 @@ class AuthManager: ObservableObject {
                 self.user = userModel
                 self.userHasProfile = true
                 self.objectWillChange.send()
+
+                // ✅ Ensure the FCM token is up to date
+                if let fcmToken = Messaging.messaging().fcmToken {
+                    self.updateFCMToken(userID: userID, fcmToken: fcmToken)
+                }
             }
         }
     }
 
+    func updateFCMToken(userID: String, fcmToken: String) {
+        let userRef = db.collection("users").document(userID)
 
-
-
-    /// ✅ Forces SwiftUI to update and react to changes
-    func forceRefreshUI() {
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
-            self.objectWillChange.send()
+        userRef.updateData(["fcmToken": fcmToken]) { error in
+            if let error = error {
+                print("🔥 Error updating FCM token: \(error.localizedDescription)")
+            } else {
+                print("✅ FCM token updated successfully for user \(userID)")
+            }
         }
     }
-
 
     func signUp(email: String, password: String, completion: @escaping (Result<UserModel, Error>) -> Void) {
         Auth.auth().createUser(withEmail: email, password: password) { authResult, error in
@@ -138,17 +142,15 @@ class AuthManager: ObservableObject {
                     return
                 }
                 
-                // ✅ Create a new UserModel with default values
                 let newUser = UserModel(
                     id: firebaseUser.uid,
                     name: firebaseUser.email ?? "Unknown",
-                    isTutor: false, // Default to student, can be changed later
+                    isTutor: false,
                     languages: [],
                     bio: "",
                     profileImageURL: nil
                 )
-                
-                // ✅ Store in Firestore
+
                 let db = Firestore.firestore()
                 db.collection("users").document(firebaseUser.uid).setData([
                     "id": newUser.id,
@@ -156,7 +158,8 @@ class AuthManager: ObservableObject {
                     "isTutor": newUser.isTutor,
                     "languages": newUser.languages,
                     "bio": newUser.bio,
-                    "profileImageURL": newUser.profileImageURL as Any
+                    "profileImageURL": newUser.profileImageURL as Any,
+                    "fcmToken": Messaging.messaging().fcmToken ?? ""
                 ]) { error in
                     if let error = error {
                         print("🔥 Error saving new user profile: \(error.localizedDescription)")
@@ -173,52 +176,14 @@ class AuthManager: ObservableObject {
         }
     }
 
-    func login(email: String, password: String, completion: @escaping (Result<UserModel, Error>) -> Void) {
-        print("🔑 Attempting to log in user: \(email)")
-
-        Auth.auth().signIn(withEmail: email, password: password) { authResult, error in
-            DispatchQueue.main.async {
-                if let error = error {
-                    print("❌ Login Failed: \(error.localizedDescription)")
-                    completion(.failure(error))
-                    return
-                }
-
-                guard let firebaseUser = authResult?.user else {
-                    completion(.failure(NSError(domain: "AuthError", code: -1, userInfo: [NSLocalizedDescriptionKey: "User login failed."])))
-                    return
-                }
-
-                print("✅ Login Successful: \(firebaseUser.email ?? "Unknown Email") (UID: \(firebaseUser.uid))")
-
-                // ✅ Fetch profile from Firestore
-                self.checkIfProfileExists(userID: firebaseUser.uid)
-                
-                // ✅ Set a placeholder user until Firestore data loads
-                self.user = UserModel(
-                    id: firebaseUser.uid,
-                    name: firebaseUser.email ?? "Unknown",
-                    isTutor: false,
-                    languages: [],
-                    bio: "",
-                    profileImageURL: nil
-                )
-
-                self.isLoggedIn = true
-                completion(.success(self.user!)) // ✅ Once profile loads, UI updates
-            }
-        }
-    }
-
-
     func logout() {
-        guard !logoutInProgress else { return } // ✅ Prevent multiple logouts
+        guard !logoutInProgress else { return }
         logoutInProgress = true
 
         DispatchQueue.main.async {
             print("🚪 Logging out user...")
             self.isLoggedIn = false
-            self.userHasProfile = nil // ✅ Reset to prevent stale UI state
+            self.userHasProfile = nil
             self.user = nil
             self.forceRefreshUI()
         }
@@ -230,14 +195,18 @@ class AuthManager: ObservableObject {
             print("🔥 Logout Error: \(error.localizedDescription)")
         }
 
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) { // ✅ Small delay for smoother transition
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) {
             self.logoutInProgress = false
             self.forceRefreshUI()
             print("🔄 Logout completed, transitioning directly to AuthView.")
-
-            // ✅ Immediately re-check auth state after logout
             self.checkAuthState()
         }
     }
 
+    /// ✅ Forces SwiftUI to update and react to changes
+    func forceRefreshUI() {
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
+            self.objectWillChange.send()
+        }
+    }
 }

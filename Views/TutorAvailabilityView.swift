@@ -4,165 +4,165 @@ import FirebaseFirestore
 struct TutorAvailabilityView: View {
     @EnvironmentObject var authManager: AuthManager
     @State private var selectedDate = Date()
-    @State private var selectedTime = ""
-    @State private var availableSlots: [String] = []
+    @State private var availableTimeSlots: [String] = []
     @State private var errorMessage: String?
-    @State private var isLoading = false
-    @State private var navigateBackToTutorDashboard = false
 
-    var tutorID: String? {
-        return authManager.user?.isTutor == true ? authManager.user?.id : nil
-    }
-
+    private let db = Firestore.firestore()
+    
     var body: some View {
         VStack(spacing: 20) {
-            Text("Manage Availability")
-                .font(.title2)
-                .bold()
+            Text("Manage Availability").font(.title2).bold()
             
-            Button(action: { navigateBackToTutorDashboard = true }) {
-                Text("← Back to Dashboard")
+            Button(action: { /* Navigate back */ }) {
+                Text("\u{2190} Back to Dashboard")
                     .frame(maxWidth: .infinity)
                     .padding()
                     .background(Color.gray)
                     .foregroundColor(.white)
                     .cornerRadius(8)
             }
-            .fullScreenCover(isPresented: $navigateBackToTutorDashboard) {
-                TutorDashboardView().environmentObject(authManager)
-            }
-
+            
             DatePicker("Select a Date", selection: $selectedDate, displayedComponents: .date)
                 .datePickerStyle(.compact)
                 .padding()
-
+                .task(id: selectedDate) { // ✅ Runs every time `selectedDate` changes
+                    await loadAvailability()
+                }
+            
             HStack {
-                TextField("Enter Time (e.g. 14:00)", text: $selectedTime)
-                    .textFieldStyle(RoundedBorderTextFieldStyle())
-                    .padding()
-
-                Button(action: {
-                    guard let tutorID = tutorID, !selectedTime.isEmpty else { return }
-                    addAvailability(for: tutorID)
-                }) {
-                    Text("Add Time")
+                Button(action: deleteAllAvailabilityForDay) {
+                    Text("Clear All for Day")
                         .frame(maxWidth: .infinity)
                         .padding()
-                        .background(Color.green)
+                        .background(Color.red)
+                        .foregroundColor(.white)
+                        .cornerRadius(8)
+                }
+                .disabled(availableTimeSlots.isEmpty)
+                
+                Button(action: copyWeekForward) {
+                    Text("Copy to Next Week")
+                        .frame(maxWidth: .infinity)
+                        .padding()
+                        .background(Color.blue)
                         .foregroundColor(.white)
                         .cornerRadius(8)
                 }
             }
-            .padding(.horizontal)
-
-            if isLoading {
-                ProgressView()
-                    .padding()
-            }
-
-            if let errorMessage = errorMessage {
-                Text(errorMessage)
-                    .foregroundColor(.red)
-                    .padding()
-            }
-
+            .padding()
+            
             List {
-                Section(header: Text("Available Slots")) {
-                    ForEach(availableSlots, id: \.self) { slot in
-                        HStack {
-                            Text(slot)
-                            Spacer()
-                            Button(action: { if let tutorID = tutorID { removeAvailability(for: tutorID, slot: slot) } }) {
-                                Image(systemName: "trash")
-                                    .foregroundColor(.red)
-                            }
+                ForEach(availableTimeSlots, id: \ .self) { slot in
+                    HStack {
+                        Text(slot)
+                        Spacer()
+                        Button(action: { deleteTimeSlot(slot: slot) }) {
+                            Image(systemName: "trash").foregroundColor(.red)
                         }
                     }
                 }
             }
-
-            Spacer()
+            .task {
+                await loadAvailability()
+            }
+            
+            if let errorMessage = errorMessage {
+                Text(errorMessage).foregroundColor(.red)
+            }
         }
         .padding()
-        .task(id: selectedDate) {
-            if let tutorID = tutorID {
-                await fetchAvailability(for: tutorID)
+    }
+    
+    // ✅ Delete all availability for the selected date
+    private func deleteAllAvailabilityForDay() {
+        guard let tutorID = authManager.user?.id else { return }
+        let dateKey = formattedDateKey(selectedDate)
+        let docRef = db.collection("tutors").document(tutorID).collection("availability").document(dateKey)
+        
+        docRef.delete { error in
+            if let error = error {
+                errorMessage = "Error deleting availability: \(error.localizedDescription)"
+            } else {
+                availableTimeSlots.removeAll()
+                print("✅ All availability deleted for \(dateKey)")
             }
         }
     }
-
-    /// Fetch availability from Firestore
-    func fetchAvailability(for tutorID: String) async {
-        isLoading = true
-        errorMessage = nil
-        availableSlots.removeAll()
-
-        let dateKey = formatDate(selectedDate)
-
-        let db = Firestore.firestore()
-        let availabilityRef = db.collection("tutors").document(tutorID)
-            .collection("availability").document(dateKey)
-
+    
+    // ✅ Copy availability to the next week
+    private func copyWeekForward() {
+        guard let tutorID = authManager.user?.id else { return }
+        let calendar = Calendar.current
+        let today = Date()
+        let startOfWeek = calendar.date(from: calendar.dateComponents([.yearForWeekOfYear, .weekOfYear], from: today))!
+        
+        for i in 0..<7 {
+            let sourceDate = calendar.date(byAdding: .day, value: i, to: startOfWeek)!
+            let targetDate = calendar.date(byAdding: .day, value: 7, to: sourceDate)!
+            
+            let sourceKey = formattedDateKey(sourceDate)
+            let targetKey = formattedDateKey(targetDate)
+            
+            let sourceRef = db.collection("tutors").document(tutorID).collection("availability").document(sourceKey)
+            let targetRef = db.collection("tutors").document(tutorID).collection("availability").document(targetKey)
+            
+            sourceRef.getDocument { document, error in
+                if let data = document?.data(), !data.isEmpty {
+                    targetRef.setData(data) { error in
+                        if let error = error {
+                            print("🔥 Error copying \(sourceKey) to \(targetKey): \(error.localizedDescription)")
+                        } else {
+                            print("✅ Copied availability from \(sourceKey) to \(targetKey)")
+                        }
+                    }
+                }
+            }
+        }
+    }
+    
+    // ✅ Load availability for the selected date
+    // ✅ Load availability for the selected date (now async)
+    private func loadAvailability() async {
+        guard let tutorID = authManager.user?.id else { return }
+        let dateKey = formattedDateKey(selectedDate)
+        let docRef = db.collection("tutors").document(tutorID).collection("availability").document(dateKey)
+        
         do {
-            let document = try await availabilityRef.getDocument()
-            if let data = document.data(), let slots = data["timeSlots"] as? [String] {
-                availableSlots = slots.sorted()
-            } else {
-                availableSlots = []
+            let document = try await docRef.getDocument()
+            let data = document.data()
+            let slots = data?["timeSlots"] as? [String] ?? []
+            
+            // ✅ Update UI on main thread
+            DispatchQueue.main.async {
+                self.availableTimeSlots = slots.sorted()
+                print("🔄 Loaded availability for \(dateKey): \(self.availableTimeSlots)")
             }
         } catch {
-            errorMessage = "Error fetching availability: \(error.localizedDescription)"
+            print("🔥 Error fetching availability for \(dateKey): \(error.localizedDescription)")
         }
-
-        isLoading = false
     }
-
-    /// Add a time slot to Firestore
-    func addAvailability(for tutorID: String) {
-        let dateKey = formatDate(selectedDate)
-
-        let db = Firestore.firestore()
-        let availabilityRef = db.collection("tutors").document(tutorID)
-            .collection("availability").document(dateKey)
-
-        availableSlots.append(selectedTime)
-        availableSlots.sort()
-
-        availabilityRef.setData(["timeSlots": availableSlots], merge: true) { error in
+    
+    // ✅ Delete a single time slot
+    private func deleteTimeSlot(slot: String) {
+        guard let tutorID = authManager.user?.id else { return }
+        let dateKey = formattedDateKey(selectedDate)
+        let docRef = db.collection("tutors").document(tutorID).collection("availability").document(dateKey)
+        
+        docRef.updateData(["timeSlots": FieldValue.arrayRemove([slot])]) { error in
             if let error = error {
-                errorMessage = "Failed to add availability: \(error.localizedDescription)"
+                errorMessage = "Error deleting slot: \(error.localizedDescription)"
             } else {
-                selectedTime = ""
+                availableTimeSlots.removeAll { $0 == slot }
+                print("✅ Deleted time slot: \(slot)")
             }
         }
     }
-
-    /// Remove a time slot from Firestore
-    func removeAvailability(for tutorID: String, slot: String) {
-        let dateKey = formatDate(selectedDate)
-
-        let db = Firestore.firestore()
-        let availabilityRef = db.collection("tutors").document(tutorID)
-            .collection("availability").document(dateKey)
-
-        availableSlots.removeAll { $0 == slot }
-
-        if availableSlots.isEmpty {
-            availabilityRef.delete()
-        } else {
-            availabilityRef.setData(["timeSlots": availableSlots], merge: true)
-        }
-    }
-
-    /// Helper function to format the date as YYYYMMDD
-    func formatDate(_ date: Date) -> String {
+    
+    // ✅ Format date to Firestore key format (YYYYMMDD)
+    private func formattedDateKey(_ date: Date) -> String {
         let formatter = DateFormatter()
         formatter.dateFormat = "yyyyMMdd"
         return formatter.string(from: date)
     }
 }
 
-// Preview
-#Preview {
-    TutorAvailabilityView().environmentObject(AuthManager.shared)
-}
