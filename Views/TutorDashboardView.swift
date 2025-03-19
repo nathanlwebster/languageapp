@@ -106,6 +106,9 @@ struct TutorDashboardView: View {
             print("🟢 TutorDashboardView appeared, fetching lessons...")
             fetchLessons()
             fetchSessionLengthPreference()
+            if let tutorID = authManager.user?.id {
+                FirestoreManager.shared.updateExistingBookingsWithEndTime(forTutor: tutorID)
+            }
         }
     }
     

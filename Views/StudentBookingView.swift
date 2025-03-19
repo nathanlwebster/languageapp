@@ -10,6 +10,9 @@ struct StudentBookingView: View {
     @State private var selectedTimeSlot: String?
     @State private var errorMessage: String?
     @State private var navigateBackToDashboard = false
+    @State private var selectedSessionLength: Int = 30 // ✅ Default to 30 min
+    @State private var tutorSessionLengths: [Int] = []
+
 
     var body: some View {
         ScrollView {
@@ -88,6 +91,13 @@ struct StudentBookingView: View {
                             }
                         }
                     }
+                    
+                    Picker("Session Length", selection: $selectedSessionLength) {
+                        Text("30 Minutes").tag(30)
+                        Text("60 Minutes").tag(60)
+                    }
+                    .pickerStyle(SegmentedPickerStyle())
+                    .padding()
 
                     // ✅ Time Slot Selection (List instead of Picker)
                     if !availableTimeSlots.isEmpty {
@@ -153,7 +163,14 @@ struct StudentBookingView: View {
         }
         .task(id: selectedDate) {
             if let tutor = selectedTutor, let date = selectedDate {
-                await fetchAvailableTimeSlots(for: tutor, date: date)
+                await fetchAvailableTimeSlotsForTutor(tutorID: tutor.id, date: date) { slots, error in
+                    if let error = error {
+                        print("🔥 Error fetching time slots: \(error.localizedDescription)")
+                        availableTimeSlots = []
+                    } else {
+                        availableTimeSlots = slots ?? []
+                    }
+                }
             } else {
                 availableTimeSlots = []
                 selectedTimeSlot = nil
@@ -228,21 +245,33 @@ struct StudentBookingView: View {
     }
 
     // ✅ Fetch available time slots for the selected date
-    func fetchAvailableTimeSlots(for tutor: UserModel, date: String) async {
-        do {
-            print("📡 Fetching available time slots for Tutor ID: \(tutor.id), Name: \(tutor.name) on \(date)")
-            let slots = try await FirestoreManager.shared.fetchAvailableTimeSlots(tutorID: tutor.id, date: date)
+    func fetchAvailableTimeSlotsForTutor(tutorID: String, date: String, completion: @escaping ([String]?, Error?) -> Void) {
+        FirestoreManager.shared.fetchAvailableTimeSlots(tutorID: tutorID, date: date, sessionLengths: tutorSessionLengths) { slots, error in
             DispatchQueue.main.async {
-                print("✅ Available Time Slots for \(tutor.name) on \(date): \(slots)")
-                availableTimeSlots = slots
-                selectedTimeSlot = nil
-            }
-        } catch {
-            DispatchQueue.main.async {
-                errorMessage = "🔥 Error loading time slots: \(error.localizedDescription)"
+                if let error = error {
+                    print("🔥 Error fetching available slots: \(error.localizedDescription)")
+                    completion(nil, error)
+                    return
+                }
+
+                guard let slots = slots else {
+                    completion([], nil)
+                    return
+                }
+
+                // 🛠️ Apply filtering based on session length preferences
+                let filteredSlots = slots.filter { slot in
+                    if tutorSessionLengths.contains(60) && !tutorSessionLengths.contains(30) {
+                        return slot.hasSuffix(":00") // ⏳ Keep only full-hour slots
+                    }
+                    return true // ✅ Otherwise, keep all slots
+                }
+
+                completion(filteredSlots, nil)
             }
         }
     }
+
     
     func hasAvailability(tutorID: String) async -> Bool {
         do {
@@ -259,20 +288,25 @@ struct StudentBookingView: View {
         guard let tutor = selectedTutor, let student = authManager.user,
               let date = selectedDate, let timeSlot = selectedTimeSlot else { return }
 
+        guard let selectedDate = selectedDate, let selectedTimeSlot = selectedTimeSlot else {
+            print("🔥 Error: Missing required booking details.")
+            return
+        }
+
         FirestoreManager.shared.bookSession(
             tutorID: tutor.id,
             studentID: student.id,
             studentName: student.name,
-            date: date,
-            timeSlot: timeSlot
-        ) { success, error in
-            DispatchQueue.main.async {
-                if success {
-                    errorMessage = "✅ Lesson booked successfully!"
-                } else {
-                    errorMessage = error ?? "🔥 Booking failed."
-                }
+            date: selectedDate,
+            timeSlot: selectedTimeSlot,
+            sessionLength: selectedSessionLength
+        ) { success, errorMessage in
+            if success {
+                print("✅ Booking successful!")
+            } else {
+                print("🔥 Booking failed: \(errorMessage ?? "Unknown error")")
             }
         }
+
     }
 }

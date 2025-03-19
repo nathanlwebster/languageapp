@@ -89,15 +89,30 @@ class FirestoreManager {
     }
 
     // ✅ Fetch available time slots for a tutor on a specific date
-    func fetchAvailableTimeSlots(tutorID: String, date: String) async throws -> [String] {
+    func fetchAvailableTimeSlots(tutorID: String, date: String, sessionLengths: [Int], completion: @escaping ([String]?, Error?) -> Void) {
         let docRef = db.collection("tutors").document(tutorID).collection("availability").document(date)
 
-        let document = try await docRef.getDocument()
-        
-        guard let data = document.data(), let timeSlots = data["timeSlots"] as? [String] else {
-            return []
+        docRef.getDocument { document, error in
+            if let error = error {
+                completion(nil, error)
+                return
+            }
+
+            guard let data = document?.data(), let timeSlots = data["timeSlots"] as? [String] else {
+                completion([], nil)
+                return
+            }
+
+            // Filter time slots based on allowed session length
+            let filteredSlots = timeSlots.filter { slot in
+                if sessionLengths.contains(60) && !sessionLengths.contains(30) {
+                    return slot.hasSuffix(":00") // Only allow on-the-hour times
+                }
+                return true // If both lengths are allowed, return all
+            }
+
+            completion(filteredSlots, nil)
         }
-        return timeSlots
     }
     
     // ✅ Book a tutor session
@@ -107,13 +122,13 @@ class FirestoreManager {
         studentName: String,
         date: String,
         timeSlot: String,
+        sessionLength: Int,
         completion: @escaping (Bool, String?) -> Void
     ) {
         let tutorUserRef = db.collection("users").document(tutorID)
 
         tutorUserRef.getDocument { document, error in
             if let error = error {
-                print("🔥 Firestore error fetching tutor name: \(error.localizedDescription)")
                 completion(false, "Error fetching tutor name")
                 return
             }
@@ -121,12 +136,12 @@ class FirestoreManager {
             guard let document = document, document.exists,
                   let tutorData = document.data(),
                   let tutorName = tutorData["name"] as? String else {
-                print("⚠️ Failed to retrieve tutor name from users/{tutorID}")
                 completion(false, "Tutor name not found")
                 return
             }
 
-            print("✅ Booking Lesson: Tutor ID: \(tutorID), Name: \(tutorName)")
+            // ✅ Calculate correct end time
+            let endTime = self.calculateEndTime(startTime: timeSlot, sessionLength: sessionLength)
 
             let bookingData: [String: Any] = [
                 "studentID": studentID,
@@ -135,57 +150,82 @@ class FirestoreManager {
                 "tutorName": tutorName,
                 "date": date,
                 "timeSlot": timeSlot,
+                "sessionLength": sessionLength,
+                "endTime": endTime, // ✅ Store correct end time
                 "status": "pending"
             ]
 
             let bookingRef = self.db.collection("tutors").document(tutorID).collection("bookings").document()
-
             bookingRef.setData(bookingData) { error in
-                if let error = error {
-                    print("🔥 Booking failed: \(error.localizedDescription)")
-                    completion(false, error.localizedDescription)
-                } else {
-                    print("✅ Booking successful for Tutor ID: \(tutorID)")
-
-                    // ✅ Send Push Notification to Tutor
-                    NotificationManager.shared.sendNotification(
-                        toUserID: tutorID,
-                        title: "New Booking Request",
-                        body: "\(studentName) has requested a lesson on \(date) at \(timeSlot)."
-                    )
-
-                    completion(true, nil)
-                }
+                completion(error == nil, error?.localizedDescription)
             }
         }
     }
     
     // ✅ Fetch all bookings for a tutor
-    func fetchBookings(forTutor tutorID: String, tutorName: String, completion: @escaping ([Booking]?, Error?) -> Void) {
+    func fetchBookings(forTutor tutorID: String, tutorName: String, completion: @escaping ([String: String]) -> Void) {
+        print("📡 Fetching bookings for tutor: \(tutorID)")
+
         let bookingsRef = db.collection("tutors").document(tutorID).collection("bookings")
 
         bookingsRef.getDocuments { snapshot, error in
             if let error = error {
                 print("🔥 Error fetching bookings: \(error.localizedDescription)")
-                completion(nil, error)
+                completion([:])
                 return
             }
 
-            let bookings = snapshot?.documents.compactMap { doc -> Booking? in
+            var bookedSlots: [String: String] = [:] // Dictionary of [TimeSlot: Status]
+
+            for doc in snapshot?.documents ?? [] {
                 let data = doc.data()
-                return Booking(
-                    id: doc.documentID,
-                    studentID: data["studentID"] as? String ?? "",
-                    studentName: data["studentName"] as? String ?? "Unknown",
-                    tutorID: tutorID, // ✅ Ensure tutorID is passed correctly
-                    tutorName: tutorName, // ✅ Include tutorName
-                    date: data["date"] as? String ?? "",
-                    timeSlot: data["timeSlot"] as? String ?? "",
-                    status: data["status"] as? String ?? "pending"
-                )
+                let startTime = data["timeSlot"] as? String ?? ""
+                let endTime = data["endTime"] as? String ?? ""
+                let status = data["status"] as? String ?? "pending"
+
+                print("📅 Processing Booking: \(startTime) - \(endTime) | Status: \(status)")
+
+                // ✅ Store the correct status for the starting slot
+                bookedSlots[startTime] = status
+
+                // ✅ Ensure next slot is blocked correctly based on session length
+                if let sessionLength = data["sessionLength"] as? Int {
+                    let nextSlot = sessionLength == 60 ? self.getNextHourSlot(from: startTime) : self.getNextHalfHourSlot(from: startTime)
+
+                    if let nextSlot = nextSlot {
+                        if bookedSlots[nextSlot] == nil || bookedSlots[nextSlot] == "pending" {
+                            bookedSlots[nextSlot] = status
+                            print("🔒 Correctly Blocking Next Slot: \(nextSlot) also as \(status)")
+                        }
+                    }
+                }
             }
-            completion(bookings, nil)
+
+            print("✅ Final Booked Slots: \(bookedSlots)") // ✅ Debugging output
+            completion(bookedSlots)
         }
+    }
+
+
+
+    private func getNextHourSlot(from time: String) -> String? {
+        let formatter = DateFormatter()
+        formatter.dateFormat = "h:mm a" // ✅ Ensures consistent AM/PM format
+
+        guard let date = formatter.date(from: time) else { return nil }
+
+        let nextHourDate = Calendar.current.date(byAdding: .minute, value: 60, to: date)!
+        return formatter.string(from: nextHourDate) // ✅ Returns correct next time slot
+    }
+    
+    private func getNextHalfHourSlot(from time: String) -> String? {
+        let formatter = DateFormatter()
+        formatter.dateFormat = "h:mm a" // Ensure correct format
+
+        guard let date = formatter.date(from: time) else { return nil }
+        let nextSlot = Calendar.current.date(byAdding: .minute, value: 30, to: date)!
+
+        return formatter.string(from: nextSlot)
     }
 
     // ✅ Fetch all pending bookings for a tutor
@@ -498,7 +538,35 @@ class FirestoreManager {
                 completion(pendingBookings, confirmedBookings, nil)
             }
     }
+    
+    func updateExistingBookingsWithEndTime(forTutor tutorID: String) {
 
+        let bookingsRef = db.collection("tutors").document(tutorID).collection("bookings")
+
+        bookingsRef.getDocuments { snapshot, error in
+            if let error = error {
+                print("🔥 Error fetching bookings: \(error.localizedDescription)")
+                return
+            }
+
+            for document in snapshot?.documents ?? [] {
+                let data = document.data()
+                guard let startTime = data["timeSlot"] as? String else { continue }
+                let sessionLength = data["sessionLength"] as? Int ?? 30 // Default to 30 min if missing
+                
+                let endTime = self.calculateEndTime(startTime: startTime, sessionLength: sessionLength)
+
+                // Update Firestore document with calculated endTime
+                bookingsRef.document(document.documentID).updateData(["endTime": endTime]) { error in
+                    if let error = error {
+                        print("🔥 Error updating booking \(document.documentID): \(error.localizedDescription)")
+                    } else {
+                        print("✅ Booking \(document.documentID) updated with endTime: \(endTime)")
+                    }
+                }
+            }
+        }
+    }
 
     // ✅ Add a vocabulary word
     func addVocabularyWord(userID: String, word: String, translation: String, exampleSentence: String, difficultyLevel: String, completion: @escaping (Error?) -> Void) {
@@ -546,4 +614,30 @@ class FirestoreManager {
             completion(words, nil)
         }
     }
+    
+    private func calculateEndTime(startTime: String, sessionLength: Int) -> String {
+        let formatter = DateFormatter()
+        formatter.dateFormat = "h:mm a" // ✅ Updated to remove leading zero
+
+        // 🛠 Debug: Print the inputs received
+        print("📌 Calculating End Time...")
+        print("⏳ Received Start Time: \(startTime)")
+        print("🕒 Received Session Length: \(sessionLength) minutes")
+
+        guard let startDate = formatter.date(from: startTime) else {
+            print("🔥 Error: Could not parse startTime: \(startTime)")
+            return startTime
+        }
+
+        // ✅ Add session length to get end time
+        let endDate = Calendar.current.date(byAdding: .minute, value: sessionLength, to: startDate)!
+
+        let formattedEndTime = formatter.string(from: endDate)
+
+        // 🛠 Debug: Print the calculated end time
+        print("✅ Calculated End Time: \(formattedEndTime)")
+
+        return formattedEndTime
+    }
+
 }
