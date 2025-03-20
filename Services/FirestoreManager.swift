@@ -162,6 +162,49 @@ class FirestoreManager {
         }
     }
     
+    func fetchAvailabilityAndBookings(tutorID: String, date: String, completion: @escaping ([String], [String], [String], Error?) -> Void) {
+            let availabilityRef = db.collection("tutor_availability").document(tutorID).collection("dates").document(date)
+            let bookingsRef = db.collection("bookings").whereField("tutorID", isEqualTo: tutorID).whereField("date", isEqualTo: date)
+            
+            var availableSlots: [String] = []
+            var pendingSlots: [String] = []
+            var confirmedSlots: [String] = []
+            
+            let group = DispatchGroup()
+            
+            // Fetch availability
+            group.enter()
+            availabilityRef.getDocument { snapshot, error in
+                if let data = snapshot?.data(), let slots = data["available_slots"] as? [String] {
+                    availableSlots = slots
+                }
+                group.leave()
+            }
+            
+            // Fetch bookings
+            group.enter()
+            bookingsRef.getDocuments { snapshot, error in
+                if let documents = snapshot?.documents {
+                    for doc in documents {
+                        let status = doc["status"] as? String ?? ""
+                        let time = doc["time"] as? String ?? ""
+                        if status == "confirmed" {
+                            confirmedSlots.append(time)
+                        } else if status == "pending" {
+                            pendingSlots.append(time)
+                        }
+                    }
+                }
+                group.leave()
+            }
+            
+            // Return combined data
+            group.notify(queue: .main) {
+                completion(availableSlots, pendingSlots, confirmedSlots, nil)
+            }
+    }
+    
+    
     // ✅ Fetch all bookings for a tutor
     func fetchBookings(forTutor tutorID: String, tutorName: String, completion: @escaping ([String: String]) -> Void) {
         print("📡 Fetching bookings for tutor: \(tutorID)")
@@ -182,22 +225,23 @@ class FirestoreManager {
                 let startTime = data["timeSlot"] as? String ?? ""
                 let endTime = data["endTime"] as? String ?? ""
                 let status = data["status"] as? String ?? "pending"
+                let sessionLength = data["sessionLength"] as? Int ?? 30 // Default to 30 minutes
 
                 print("📅 Processing Booking: \(startTime) - \(endTime) | Status: \(status)")
 
                 // ✅ Store the correct status for the starting slot
                 bookedSlots[startTime] = status
 
-                // ✅ Ensure next slot is blocked correctly based on session length
-                if let sessionLength = data["sessionLength"] as? Int {
-                    let nextSlot = sessionLength == 60 ? self.getNextHourSlot(from: startTime) : self.getNextHalfHourSlot(from: startTime)
-
-                    if let nextSlot = nextSlot {
-                        if bookedSlots[nextSlot] == nil || bookedSlots[nextSlot] == "pending" {
+                // ✅ Only block next slot if session is 60 minutes
+                if sessionLength == 60 {
+                    if let nextSlot = self.getNextHalfHourSlot(from: startTime) {
+                        if bookedSlots[nextSlot] == nil { // ✅ Prevent double-blocking
                             bookedSlots[nextSlot] = status
-                            print("🔒 Correctly Blocking Next Slot: \(nextSlot) also as \(status)")
+                            print("🔒 Correctly Blocking Next Slot: \(nextSlot) as \(status)")
                         }
                     }
+                } else {
+                    print("✅ Not blocking next slot for 30-minute session at \(startTime).")
                 }
             }
 
@@ -206,8 +250,81 @@ class FirestoreManager {
         }
     }
 
+    func addAvailability(tutorID: String, date: String, timeSlot: String, completion: @escaping () -> Void) {
+        let availabilityRef = db.collection("tutor_availability").document(tutorID).collection("dates").document(date)
+        
+        availabilityRef.updateData([
+            "available_slots": FieldValue.arrayUnion([timeSlot])
+        ]) { error in
+            if let error = error {
+                print("Error adding availability: \(error.localizedDescription)")
+            }
+            completion()
+        }
+    }
 
+    func removeAvailability(tutorID: String, date: String, timeSlot: String, completion: @escaping () -> Void) {
+        let availabilityRef = db.collection("tutor_availability").document(tutorID).collection("dates").document(date)
+        
+        availabilityRef.updateData([
+            "available_slots": FieldValue.arrayRemove([timeSlot])
+        ]) { error in
+            if let error = error {
+                print("Error removing availability: \(error.localizedDescription)")
+            }
+            completion()
+        }
+    }
 
+    func confirmBooking(tutorID: String, date: String, timeSlot: String, completion: @escaping () -> Void) {
+        let bookingsRef = db.collection("bookings").whereField("tutorID", isEqualTo: tutorID)
+            .whereField("date", isEqualTo: date)
+            .whereField("time", isEqualTo: timeSlot)
+        
+        bookingsRef.getDocuments { snapshot, error in
+            guard let documents = snapshot?.documents else {
+                print("Error confirming booking: \(error?.localizedDescription ?? "Unknown error")")
+                completion()
+                return
+            }
+            
+            for document in documents {
+                document.reference.updateData(["status": "confirmed"]) { error in
+                    if let error = error {
+                        print("Error updating booking to confirmed: \(error.localizedDescription)")
+                    }
+                }
+            }
+            
+            completion()
+        }
+    }
+
+    func deleteBooking(tutorID: String, date: String, timeSlot: String, completion: @escaping () -> Void) {
+        let bookingsRef = db.collection("bookings").whereField("tutorID", isEqualTo: tutorID)
+            .whereField("date", isEqualTo: date)
+            .whereField("time", isEqualTo: timeSlot)
+        
+        bookingsRef.getDocuments { snapshot, error in
+            guard let documents = snapshot?.documents else {
+                print("Error deleting booking: \(error?.localizedDescription ?? "Unknown error")")
+                completion()
+                return
+            }
+            
+            for document in documents {
+                document.reference.delete { error in
+                    if let error = error {
+                        print("Error deleting booking: \(error.localizedDescription)")
+                    }
+                }
+            }
+            
+            completion()
+        }
+    }
+
+    
     private func getNextHourSlot(from time: String) -> String? {
         let formatter = DateFormatter()
         formatter.dateFormat = "h:mm a" // ✅ Ensures consistent AM/PM format

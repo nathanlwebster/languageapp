@@ -5,6 +5,7 @@ import SwiftUI
 
 class AuthManager: ObservableObject {
     @Published var user: UserModel?
+    @Published var userID: String?
     @AppStorage("isLoggedIn") var isLoggedIn = false
     @Published var userHasProfile: Bool? = nil
     private var authListenerHandle: AuthStateDidChangeListenerHandle?
